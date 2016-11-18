@@ -94,6 +94,7 @@ func handleMux(conn io.ReadWriteCloser, config *Config) {
 			log.Println("Read ttan timeout:")
 			return
 		}
+		defer close(ttan) //Chan not used , then we can safe close it
 		log.Println(string(ttaBuf))
 		log.Println("ttan was: ", string(ttbyte))
 		target = string(ttbyte)
