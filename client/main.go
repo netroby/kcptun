@@ -387,9 +387,6 @@ func main() {
 			muxes[k].ttl = time.Now().Add(time.Duration(config.AutoExpire) * time.Second)
 		}
 
-		chScavenger := make(chan *smux.Session, 128)
-		go scavenger(chScavenger)
-		rr := uint16(0)
 		for {
 			p1, err := listener.AcceptTCP()
 			if err := p1.SetReadBuffer(config.SockBuf); err != nil {
@@ -406,7 +403,6 @@ func main() {
 			log.Println("Got rand idx:", idx)
 			// do auto expiration
 			if config.AutoExpire > 0 && time.Now().After(muxes[idx].ttl) {
-				chScavenger <- muxes[idx].session
 				muxes[idx].session.Close()
 				muxes[idx].session = waitConn()
 				muxes[idx].ttl = time.Now().Add(time.Duration(config.AutoExpire) * time.Second)
@@ -415,48 +411,13 @@ func main() {
 			// do session open
 			p2, err := muxes[idx].session.OpenStream()
 			if err != nil { // mux failure
-				chScavenger <- muxes[idx].session
 				muxes[idx].session.Close()
 				muxes[idx].session = waitConn()
 				muxes[idx].ttl = time.Now().Add(time.Duration(config.AutoExpire) * time.Second)
 				goto OPEN_P2
 			}
 			go handleClient(p1, p2)
-			rr++
 		}
 	}
 	myApp.Run(os.Args)
-}
-
-type scavengeSession struct {
-	session *smux.Session
-	ttl     time.Time
-}
-
-const (
-	maxScavengeTTL = 10 * time.Minute
-)
-
-func scavenger(ch chan *smux.Session) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	var sessionList []scavengeSession
-	for {
-		select {
-		case sess := <-ch:
-			sessionList = append(sessionList, scavengeSession{sess, time.Now()})
-		case <-ticker.C:
-			var newList []scavengeSession
-			for k := range sessionList {
-				s := sessionList[k]
-				if s.session.NumStreams() == 0 || s.session.IsClosed() || time.Since(s.ttl) > maxScavengeTTL {
-					log.Println("session scavenged")
-					s.session.Close()
-				} else {
-					newList = append(newList, sessionList[k])
-				}
-			}
-			sessionList = newList
-		}
-	}
 }
